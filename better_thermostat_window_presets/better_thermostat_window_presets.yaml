@@ -1,0 +1,218 @@
+blueprint:
+  name: "Better Thermostat - Window ventilation with state restoration"
+  description: >
+    Temporarily activate a preset (default: away) while a window/door is open,
+    then restore the previous preset and target temperature when it closes.
+    A separate input_text helper per room persists the snapshot across Home
+    Assistant restarts. Periodic reconciliation recovers missed delayed triggers
+    after a restart or automation reload. Intended for heating thermostats.
+
+    Before use, create an input_text helper (max 255, min 0, no initial value)
+    and set its CURRENT value to "idle" once. Never configure a fixed initial
+    value: that would overwrite the snapshot on restart.
+
+    The selected window preset must be enabled in Better Thermostat.
+    Do not enable Better Thermostat's own window detection for the same sensor.
+  domain: automation
+  input:
+    window_sensor:
+      name: Window/door blocking sensor
+      description: "Must report 'on' when open and 'off' when closed."
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+    thermostat:
+      name: Better Thermostat
+      selector:
+        entity:
+          filter:
+            - domain: climate
+    snapshot_helper:
+      name: Persistent state helper
+      description: >
+        A dedicated input_text helper for this room, with max length 255,
+        minimum length 0, no fixed initial value, initialized to 'idle'.
+      selector:
+        entity:
+          filter:
+            - domain: input_text
+    ventilation_preset:
+      name: Preset to use when window is open
+      default: away
+      selector:
+        select:
+          options:
+            - away
+            - eco
+            - home
+            - sleep
+            - comfort
+            - activity
+    open_delay:
+      name: Open window delay
+      default:
+        minutes: 2
+      selector:
+        duration: {}
+    close_delay:
+      name: Closed window delay
+      default:
+        seconds: 30
+      selector:
+        duration: {}
+
+variables:
+  thermostat_entity: !input thermostat
+  helper_entity: !input snapshot_helper
+  ventilation_preset_name: !input ventilation_preset
+
+triggers:
+  - trigger: state
+    entity_id: !input window_sensor
+    to: "on"
+    for: !input open_delay
+  - trigger: state
+    entity_id: !input window_sensor
+    to: "off"
+    for: !input close_delay
+  # Trigger `for:` timers are lost on restart/reload. State conditions below
+  # re-check elapsed time; this periodic trigger eventually reconciles them.
+  - trigger: time_pattern
+    minutes: "/1"
+
+actions:
+  - choose:
+      # WINDOW OPEN: capture exactly once, then keep the window preset active.
+      - conditions:
+          - condition: state
+            entity_id: !input window_sensor
+            state: "on"
+            for: !input open_delay
+          - condition: template
+            value_template: >-
+              {{ states(thermostat_entity) == 'heat'
+                 and states(helper_entity) not in ['unknown', 'unavailable']
+                 and ventilation_preset_name in
+                   (state_attr(thermostat_entity, 'preset_modes') or []) }}
+        sequence:
+          # 'idle' is the deliberate no-snapshot sentinel. Also accept an
+          # empty helper for compatibility with newly created UI helpers.
+          # Never treat unknown/unavailable/malformed JSON as empty.
+          - if:
+              - condition: template
+                value_template: >-
+                  {{ states(helper_entity) in ['', 'idle']
+                     and (state_attr(thermostat_entity, 'preset_mode') or 'none')
+                         != ventilation_preset_name
+                     and is_number(state_attr(thermostat_entity, 'temperature')) }}
+            then:
+              - action: input_text.set_value
+                target:
+                  entity_id: !input snapshot_helper
+                data:
+                  value: >-
+                    {{ dict(
+                         preset=state_attr(thermostat_entity, 'preset_mode') or 'none',
+                         temperature=state_attr(thermostat_entity, 'temperature') | float,
+                         hvac_mode=states(thermostat_entity)
+                       ) | to_json }}
+          # Require a valid saved state before controlling the thermostat.
+          - condition: template
+            value_template: >-
+              {% set saved = states(helper_entity) | from_json(default={}) %}
+              {{ saved is mapping
+                 and saved.preset is defined
+                 and saved.hvac_mode == 'heat'
+                 and saved.temperature is defined
+                 and is_number(saved.temperature) }}
+          - condition: state
+            entity_id: !input window_sensor
+            state: "on"
+          - if:
+              - condition: template
+                value_template: >-
+                  {{ state_attr(thermostat_entity, 'preset_mode')
+                     != ventilation_preset_name }}
+            then:
+              - action: climate.set_preset_mode
+                target:
+                  entity_id: !input thermostat
+                data:
+                  preset_mode: !input ventilation_preset
+
+      # WINDOW CLOSED: restore, then clear only after successful actions.
+      - conditions:
+          - condition: state
+            entity_id: !input window_sensor
+            state: "off"
+            for: !input close_delay
+          - condition: template
+            value_template: >-
+              {% set saved = states(helper_entity) | from_json(default={}) %}
+              {{ saved is mapping
+                 and saved.preset is defined
+                 and saved.hvac_mode == 'heat'
+                 and saved.temperature is defined
+                 and is_number(saved.temperature)
+                 and states(thermostat_entity) not in ['unknown', 'unavailable']
+                 and (saved.preset == 'none' or saved.preset in
+                      (state_attr(thermostat_entity, 'preset_modes') or [])) }}
+        sequence:
+          - variables:
+              saved: "{{ states(helper_entity) | from_json(default={}) }}"
+
+          # Restore heating if it was switched off by another action.
+          - if:
+              - condition: template
+                value_template: "{{ states(thermostat_entity) != saved.hvac_mode }}"
+            then:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: !input thermostat
+                data:
+                  hvac_mode: "{{ saved.hvac_mode }}"
+              - wait_template: "{{ states(thermostat_entity) == saved.hvac_mode }}"
+                timeout: "00:00:15"
+                continue_on_timeout: false
+
+          - action: climate.set_preset_mode
+            target:
+              entity_id: !input thermostat
+            data:
+              preset_mode: "{{ saved.preset }}"
+          - wait_template: >-
+              {{ state_attr(thermostat_entity, 'preset_mode') == saved.preset }}
+            timeout: "00:00:15"
+            continue_on_timeout: false
+
+          # Presets have their configured target; only 'none' needs the exact
+          # manually adjusted setpoint (for example, 25 C) restored as well.
+          - if:
+              - condition: template
+                value_template: "{{ saved.preset == 'none' }}"
+            then:
+              - action: climate.set_temperature
+                target:
+                  entity_id: !input thermostat
+                data:
+                  temperature: "{{ saved.temperature | float }}"
+              - wait_template: >-
+                  {% set current = state_attr(thermostat_entity, 'temperature') %}
+                  {{ is_number(current) and
+                     ((current | float) - (saved.temperature | float)) | abs < 0.11 }}
+                timeout: "00:00:15"
+                continue_on_timeout: false
+
+          # Do not delete the snapshot if the sensor reopened mid-restore.
+          - condition: state
+            entity_id: !input window_sensor
+            state: "off"
+          - action: input_text.set_value
+            target:
+              entity_id: !input snapshot_helper
+            data:
+              value: "idle"
+
+mode: queued
+max: 5
