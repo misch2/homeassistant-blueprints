@@ -80,7 +80,7 @@ triggers:
   # Trigger `for:` timers are lost on restart/reload. State conditions below
   # re-check elapsed time; this periodic trigger eventually reconciles them.
   - trigger: time_pattern
-    minutes: "/1"
+    minutes: "/10"
 
 actions:
   - choose:

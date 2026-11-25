@@ -8,7 +8,7 @@ A Home Assistant **automation blueprint** that switches a Better Thermostat to a
 
 - Original preset and setpoint restored (including manually adjusted targets in `none`).
 - Per-room `input_text` snapshot survives Home Assistant restarts.
-- Periodic reconciliation every minute recovers after automation reloads and missed `for:` triggers.
+- Periodic reconciliation every 10 minutes recovers after automation reloads and missed `for:` triggers.
 - Configurable open and close delays (defaults: 2 minutes / 30 seconds).
 - Snapshot is never overwritten during a ventilation period.
 - No integration-specific scripts, no dynamic scenes, no copy/paste between rooms.
