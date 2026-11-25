@@ -1,4 +1,5 @@
 blueprint:
+  author: "misch2"
   name: "Better Thermostat - Window ventilation with state restoration"
   description: >
     Temporarily activate a preset (default: away) while a window/door is open,

@@ -2,6 +2,8 @@
 
 A Home Assistant **automation blueprint** that switches a Better Thermostat to a configurable preset when a window/door stays open, then restores its previous preset and (for `none`) exact target temperature when it closes.
 
+[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fmisch2%2Fhomeassistant-blueprints%2Fblob%2Fmain%2Fbetter_thermostat_window_presets%2Fbetter_thermostat_window_presets.yaml)
+
 ## Features
 
 - Original preset and setpoint restored (including manually adjusted targets in `none`).
@@ -13,7 +15,7 @@ A Home Assistant **automation blueprint** that switches a Better Thermostat to a
 
 ## Installation
 
-1. Copy `better_thermostat_window_presets.yaml` to `config/blueprints/automation/<your-username>/better_thermostat_window_presets.yaml` on the Home Assistant host.
+1. Click **Import Blueprint** above, or manually copy `better_thermostat_window_presets.yaml` to `config/blueprints/automation/<your-username>/better_thermostat_window_presets.yaml` on the Home Assistant host.
 2. For **each room**, create a Text helper (`input_text`). Use minimum length `0`, maximum `255`, **no fixed initial value**. Set its *current value* to `idle` **once**, via Developer Tools → Actions → `input_text.set_value`, or through the helper control. Do not set a fixed `initial` value; it would reset the snapshot on restart. A newly created helper whose state is already empty also works.
 3. Enable the `away` preset (or your alternative) for the Better Thermostat. Disable Better Thermostat's own window detection for the same sensor.
 4. Go to Settings → Automations & scenes → Blueprints; reload blueprints if needed. Create an automation from the blueprint for each room.
