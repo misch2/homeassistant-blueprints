@@ -8,9 +8,11 @@ blueprint:
     Assistant restarts. Periodic reconciliation recovers missed delayed triggers
     after a restart or automation reload. Intended for heating thermostats.
 
-    Before use, create an input_text helper (max 255, min 0, no initial value)
-    and set its CURRENT value to "idle" once. Never configure a fixed initial
-    value: that would overwrite the snapshot on restart.
+    Before use, create an input_text helper (max 255, min 0, no initial value).
+    New helpers with an empty or unknown state
+    are initialized automatically when saving the first ventilation snapshot.
+    Never configure a fixed initial value: that would overwrite the snapshot
+    on restart.
 
     The selected window preset must be enabled in Better Thermostat.
     Do not enable Better Thermostat's own window detection for the same sensor.
@@ -33,7 +35,8 @@ blueprint:
       name: Persistent state helper
       description: >
         A dedicated input_text helper for this room, with max length 255,
-        minimum length 0, no fixed initial value, initialized to 'idle'.
+        minimum length 0 and no fixed initial value. Empty or unknown helpers
+        are initialized automatically when saving the first snapshot.
       selector:
         entity:
           filter:
@@ -93,17 +96,18 @@ actions:
           - condition: template
             value_template: >-
               {{ states(thermostat_entity) == 'heat'
-                 and states(helper_entity) not in ['unknown', 'unavailable']
+                 and states[helper_entity] is not none
+                 and states(helper_entity) != 'unavailable'
                  and ventilation_preset_name in
                    (state_attr(thermostat_entity, 'preset_modes') or []) }}
         sequence:
-          # 'idle' is the deliberate no-snapshot sentinel. Also accept an
-          # empty helper for compatibility with newly created UI helpers.
-          # Never treat unknown/unavailable/malformed JSON as empty.
+          # 'idle' is the deliberate no-snapshot sentinel. New UI helpers may
+          # be empty or unknown; the branch above requires an existing entity.
+          # Never treat unavailable helpers or malformed JSON as empty.
           - if:
               - condition: template
                 value_template: >-
-                  {{ states(helper_entity) in ['', 'idle']
+                  {{ states(helper_entity) in ['', 'idle', 'unknown']
                      and (state_attr(thermostat_entity, 'preset_mode') or 'none')
                          != ventilation_preset_name
                      and is_number(state_attr(thermostat_entity, 'temperature')) }}

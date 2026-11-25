@@ -16,7 +16,7 @@ A Home Assistant **automation blueprint** that switches a Better Thermostat to a
 ## Installation
 
 1. Click **Import Blueprint** above, or manually copy `better_thermostat_window_presets.yaml` to `config/blueprints/automation/<your-username>/better_thermostat_window_presets.yaml` on the Home Assistant host.
-2. For **each room**, create a Text helper (`input_text`). Use minimum length `0`, maximum `255`, **no fixed initial value**. Set its *current value* to `idle` **once**, via Developer Tools → Actions → `input_text.set_value`, or through the helper control. Do not set a fixed `initial` value; it would reset the snapshot on restart. A newly created helper whose state is already empty also works.
+2. For **each room**, create a Text helper (`input_text`). Use minimum length `0`, maximum `255`, **no fixed initial value**. A newly created helper with an empty or `unknown` state is initialized automatically when the first ventilation snapshot is saved; no manual initialization is needed. An existing `idle` value also works. Do not set a fixed `initial` value; it would reset the snapshot on restart.
 3. Enable the `away` preset (or your alternative) for the Better Thermostat. Disable Better Thermostat's own window detection for the same sensor.
 4. Go to Settings → Automations & scenes → Blueprints; reload blueprints if needed. Create an automation from the blueprint for each room.
 5. Disable existing window-control automations for that room to prevent conflicts.
@@ -38,13 +38,13 @@ A Home Assistant **automation blueprint** that switches a Better Thermostat to a
 | Already `away` | Unchanged | Unchanged |
 | Thermostat `off` | Unchanged | Unchanged |
 
-If the helper is `unknown`, `unavailable`, or contains malformed JSON, the blueprint will **not overwrite it**. Fix the helper manually; don't clear a possibly valuable snapshot without checking.
+An existing helper whose state is empty, `idle`, or `unknown` is treated as having no snapshot. The blueprint saves the current thermostat settings before applying the ventilation preset. If the thermostat is already in that preset, it leaves the helper unchanged because the previous settings cannot be reconstructed. Missing or `unavailable` helpers and malformed JSON are not overwritten. Check those helpers manually; don't clear a possibly valuable snapshot without checking.
 
 ## Important limitations
 
 - This targets a **heating-only** Better Thermostat (`hvac_mode: heat`). It does not snapshot dual-target `heat_cool` thermostats.
 - When ventilation is active, the selected preset is enforced again during periodic reconciliation. Other schedules trying to change the preset can conflict. On close, the *pre-ventilation* state wins.
-- `for:` waits are lost during reload/restart; the sensor must have been stable for the configured duration again after restart. Reconciliation checks once per minute, so recovery may be delayed accordingly.
+- `for:` waits are lost during reload/restart; the sensor must have been stable for the configured duration again after restart. Reconciliation checks every 10 minutes, so recovery may be delayed accordingly.
 - The helper state is preserved across normal restarts, but no mechanism can guarantee recovery after storage loss, an unclean shutdown before the state is persisted, deleted helpers, or invalid snapshot data.
 - A very short sensor bounce during restoration could still create a race; check the automation trace if needed.
 - If restoring a preset other than `none`, Better Thermostat applies that preset's **currently configured** target temperature. The snapshot of the old target is intentionally not forced onto an active preset, because a direct temperature change could cancel the preset.
